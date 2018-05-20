@@ -5,6 +5,7 @@
 #include <Fonts/FreeSans9pt7b.h>
 #include <Fonts/FreeSansBold12pt7b.h>
 #include <Fonts/FreeSans12pt7b.h>
+#include <DS3231.h>
 
 #define YP A2  // must be an analog pin, use "An" notation!
 #define XM A3  // must be an analog pin, use "An" notation!
@@ -41,33 +42,39 @@ TouchScreen ts = TouchScreen(XP, YP, XM, YM, 300);
 
 #include <MCUFRIEND_kbv.h>
 MCUFRIEND_kbv tft;
+DS3231 rtc(SDA, SCL);
 
 int currDoseLevel;
-
 bool timeToCheckIn;
 bool lockedOut;
 String doses[4] = {"1 Tylenol", "2 Tylenol", "1 Dilaudid", "2 Dilaudid"};
 int lastDose;
 
 long lockOutStartTime;
-long lockOutInterval = 1.0; //interval, in minutes
+long lockOutInterval;
 
-long lockOutDuration = lockOutInterval * 60 * 1000;
+long lockOutDuration;
 
 ////  SETUP  ////
 void setup(void) {
   Serial.begin(9600);
 
+  // TFT SETUP //
   tft.reset();
-
-  tft.begin(tft.readID());
+  tft.begin(tft.readID()); //  read the type of TFT screen
   Serial.print("TFT size is "); Serial.print(tft.width()); Serial.print("x"); Serial.println(tft.height());
   tft.setRotation(1);
   tft.setFont(&FreeSansBold12pt7b);
-
   tft.fillScreen(WHITE);
+
+  // REAL TIME CLOCK SETUP //
+  rtc.begin();
+
+  // SETUP VARIABLES //
   timeToCheckIn = true;
-  bool lockedOut = false;
+  lockedOut = false;
+  lockOutInterval = 1.0; //lock out interval, in minutes.
+  lockOutDuration = lockOutInterval * 60 * 1000;
 
   //debug touch
 }
@@ -75,7 +82,6 @@ void setup(void) {
 ////  MAIN LOOP  ////
 void loop()
 {
-
   if (timeToCheckIn) {
     checkInScreen();
   } else {
@@ -87,7 +93,7 @@ void loop()
   }
 }
 
-
+//// CHECK IN SCREEN ////
 void checkInScreen() {
   resetScreen();
 
@@ -108,6 +114,7 @@ void checkInScreen() {
   }
 }
 
+//// TIME TO CHECK IN SCREEN ////
 void nonCheckInScreen() {
   resetScreen();
   tft.setTextColor(BLACK);
@@ -141,7 +148,7 @@ void nonCheckInScreen() {
 }
 
 
-//fix this
+//// LOCKED OUT FROM TAKING MEDICATION SCREEN ////
 void lockedOutScreen() {
   long timeElapsed = millis() - lockOutStartTime;
   refreshDelayScreen(lockOutDuration - timeElapsed);
@@ -162,6 +169,8 @@ void lockedOutScreen() {
     }
   }
 }
+
+//// LOCKED OUT FROM TAKING MEDICATION SCREEN  – DISPLAY ////
 
 void refreshDelayScreen(long t) {
   resetScreen();
@@ -198,6 +207,7 @@ void refreshDelayScreen(long t) {
   }
 }
 
+//// USER SELECTS THE DOSE NEEDED ////
 void selectDoseScreen(int level) {
   currDoseLevel = level;
   resetScreen();
@@ -246,6 +256,7 @@ void selectDoseScreen(int level) {
 
 }
 
+//// USER CONFIRMS THE DOSE CHOSEN ////
 void confirmDoseScreen(int a) {
   resetScreen();
   showBackButton();
@@ -272,6 +283,7 @@ void confirmDoseScreen(int a) {
   }
 }
 
+//// USER CONFIRMS THE OVERRIDE ////
 void confirmOverrideScreen() {
   resetScreen();
   showBackButton();
@@ -291,6 +303,7 @@ void confirmOverrideScreen() {
   }
 }
 
+//// USER SELECTS THE PAIN LEVEL THEY FEEL ////
 void getPainLevelScreen() {
   resetScreen();
 
@@ -311,6 +324,7 @@ void getPainLevelScreen() {
 
 }
 
+//// DEVICE CONFIRMS DISPENSING ////
 void dispenseConfirmedScreen(int selection) {
   resetScreen();
   tft.setTextColor(BLACK);
@@ -326,6 +340,8 @@ void dispenseConfirmedScreen(int selection) {
   tft.setFont(&FreeSansBold12pt7b);
   tft.println("     2 hours, at 12:00pm.");
 
+  // ADD SERVO HERE //
+
   delay(2000);
   timeToCheckIn = false;
   lockedOut = true;
@@ -333,7 +349,8 @@ void dispenseConfirmedScreen(int selection) {
 
 }
 
-void noMedSelectedScreen() { 
+//// USER SELECTED "NO MEDICATION" ////
+void noMedSelectedScreen() {
   resetScreen();
   showBackButton();
   showContButton();
@@ -342,10 +359,10 @@ void noMedSelectedScreen() {
   tft.setFont(&FreeSansBold12pt7b);
   tft.println("            No medication selected.");
   tft.println("            Are you sure?");
-  
+
   int answer = getConfirmDispenseAnswer();
 
-  if (answer == 2) { 
+  if (answer == 2) {
     selectDoseScreen(currDoseLevel);
   } else if (answer == 1) {
     nonCheckInScreen();
@@ -354,6 +371,9 @@ void noMedSelectedScreen() {
   }
 }
 
+
+//// LOOPING LOGIC FOR SCREENS ////
+///////////////////////////////////
 
 int getConfirmDispenseAnswer() {
   int answer;
@@ -437,6 +457,10 @@ int getContTouchInput(TSPoint p) {
   }
 }
 
+
+//// GET TOUCH INPUT FOR SCREENS ////
+////////////////////////////////////
+
 int getConfirmDispenseTouchInput(TSPoint p) {
   if (p.z > MINPRESSURE) {
     if ( (p.y > 186) && (p.y < 305) && (p.x > 38) && (p.x < 140)) {
@@ -452,7 +476,6 @@ int getConfirmDispenseTouchInput(TSPoint p) {
     return 0;
   }
 }
-
 
 int getPLTouchInput(TSPoint p) {
   if (p.z > MINPRESSURE) {
@@ -513,6 +536,7 @@ int getDoseTouchInput(TSPoint p) {
   }
 }
 
+//// GLOBAL MATH FOR CONVERTING TOUCH INTO COORDS ////
 TSPoint mapCoords(TSPoint p) {
   p.x = p.x + p.y;
   p.y = p.x - p.y;
@@ -522,19 +546,23 @@ TSPoint mapCoords(TSPoint p) {
   return p;
 }
 
+//// RESET THE SCREEN WITH ALL WHITE ////
 void resetScreen() {
   tft.fillScreen(WHITE);
   tft.setTextColor(BLACK);
   tft.setTextSize(1);
 }
 
+//// CONVERT INTEGER DOSE LEVEL TO DOSE STRING, INCLUDES NONE ////
 String getLastDose(int doseLevel) {
   if (doseLevel == 4) {
-    return "none";   
+    return "none";
   } else {
     return doses[doseLevel];
   }
 }
+
+//// A DEBUG METHOD FOR FIGURING OUT TOUCH COORDS ////
 void debug() {
   TSPoint p = ts.getPoint();
   p = mapCoords(p);
@@ -544,7 +572,8 @@ void debug() {
 }
 
 
-// DRAW ON SCREEN METHODS
+//// DRAW ON SCREEN METHODS ////
+
 void showYNButtons() {
   tft.fillRoundRect(10, 190, 220, 120, 10, BLUE);
   tft.fillRoundRect(250, 190, 220, 120, 10, BLUE);
