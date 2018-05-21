@@ -53,6 +53,8 @@ int lastDose;
 long lockOutStartTime;
 long lockOutInterval;
 
+Time lastCheckInTime;
+
 long lockOutDuration;
 
 ////  SETUP  ////
@@ -103,7 +105,7 @@ void checkInScreen() {
   tft.println("     It's time for you to check in.");
   tft.setTextSize(1);
   tft.setFont(&FreeSansBold9pt7b);
-  tft.println("       Your last check in was at 10:00am.");
+  tft.println("       Your last check in was at 10:00am."); //// add lastCheckInTime
 
 
   showContButton();
@@ -122,12 +124,12 @@ void nonCheckInScreen() {
   tft.setFont(&FreeSans12pt7b);
   tft.println("     Your next check in is in");
   tft.setFont(&FreeSansBold12pt7b);
-  tft.println("     2 hours, at 12:00pm.");
+  tft.println("     2 hours, at 12:00pm."); //// add nextCheckInTime
   tft.setTextSize(1);
   tft.setFont(&FreeSans9pt7b);
   tft.print("       Your last check in was at ");
   tft.setFont(&FreeSansBold9pt7b);
-  tft.print("10:00am");
+  tft.print("10:00am"); //// add lastCheckInTime
   tft.setFont(&FreeSans9pt7b);
   tft.println(" and ");
   tft.print("       you received ");
@@ -178,12 +180,12 @@ void refreshDelayScreen(long t) {
   tft.setCursor(0, 70);
   tft.setFont(&FreeSansBold12pt7b);
   tft.println("     Your next check in is in");
-  tft.println("     2 hours, at 12:00pm.");
+  tft.println("     2 hours, at 12:00pm."); //// add nextCheckInTime
   tft.setTextSize(1);
   tft.setFont(&FreeSans9pt7b);
   tft.print("       Your last check in was at ");
   tft.setFont(&FreeSansBold9pt7b);
-  tft.print("10:00am");
+  tft.print("10:00am"); //// add lastCheckInTime
   tft.setFont(&FreeSans9pt7b);
   tft.println(" and");
   tft.print("       you received ");
@@ -338,7 +340,7 @@ void dispenseConfirmedScreen(int selection) {
   tft.setFont(&FreeSans12pt7b);
   tft.println("     See you at your next check-in, in");
   tft.setFont(&FreeSansBold12pt7b);
-  tft.println("     2 hours, at 12:00pm.");
+  tft.println("     2 hours, at 12:00pm."); //// add nextCheckInTime
 
   // ADD SERVO HERE //
 
@@ -346,6 +348,7 @@ void dispenseConfirmedScreen(int selection) {
   timeToCheckIn = false;
   lockedOut = true;
   lockOutStartTime = millis();
+  lastCheckInTime = rtc.getTime();
 
 }
 
@@ -559,6 +562,21 @@ String getLastDose(int doseLevel) {
     return "none";
   } else {
     return doses[doseLevel];
+  }
+}
+
+//// COMPARE TIMES ////
+int minutesBetweenTimes(Time curr, Time CItime) {
+  int diffHour = curr.hour - CItime.hour;
+  if (curr.Hour < CItime.hour) {
+    diffHour = curr.hour + 24 - CItime.hour;
+  }
+  if (diffHour == 0) {
+    return curr.min - CItime.min;
+  } else if (diffHour == 1) {
+    return curr.min + (60-CItime.min);
+  } else {
+    return ((diffHour - 1)*60) + curr.min + (60-CItime.min);
   }
 }
 
