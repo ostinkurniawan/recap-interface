@@ -73,13 +73,14 @@ void setup(void) {
 
   // REAL TIME CLOCK SETUP //
   rtc.begin();
+  lastCheckInTime = rtc.getTime();
 
   // SETUP VARIABLES //
   timeToCheckIn = true;
   lockedOut = false;
   lockOutInterval = 1.0; //lock out interval, in minutes.
   lockOutDuration = lockOutInterval * 60 * 1000;
-  doseInterval = 90;
+  doseInterval = 2;
 
   //debug touch
 }
@@ -108,12 +109,14 @@ void checkInScreen() {
   tft.println("     It's time for you to check in.");
   tft.setTextSize(1);
   tft.setFont(&FreeSansBold9pt7b);
-  tft.println("       Your last check in was at ");
-  printTime(lastCheckInTime);
+  tft.print("       Your last check-in was at ");
+  String lcit = printTime(lastCheckInTime);
+  tft.print(lcit);
+  tft.println(".");
 
 
   showContButton();
-  int answer = getContAnswer();
+  int answer = getContAnswer(false);
 
   if (answer == 1) {
     getPainLevelScreen();
@@ -126,17 +129,18 @@ void nonCheckInScreen() {
   tft.setTextColor(BLACK);
   tft.setCursor(0, 70);
   tft.setFont(&FreeSans12pt7b);
-  tft.println("     Your next check in is in");
+  tft.println("     Your next check-in is in");
   tft.setFont(&FreeSansBold12pt7b);
   tft.print("     ");
   Time now = rtc.getTime();
-  printNextCheckInTime(now, lastCheckInTime);
+  printNextCheckInTime(now, nextCheckInTime);
   tft.println(".");
   tft.setTextSize(1);
   tft.setFont(&FreeSans9pt7b);
-  tft.print("       Your last check in was at ");
+  tft.print("       Your last check-in was at ");
   tft.setFont(&FreeSansBold9pt7b);
-  printTime(lastCheckInTime);
+  String lcit = printTime(lastCheckInTime);
+  tft.print(lcit);
   tft.setFont(&FreeSans9pt7b);
   tft.println(" and ");
   tft.print("       you received ");
@@ -150,9 +154,18 @@ void nonCheckInScreen() {
 
   showOverrideButton(0);
 
-  int answer = getContAnswer();
+  int answer = getContAnswer(true);
   if (answer == 1) {
     confirmOverrideScreen();
+  }
+
+  //exit to the check in screen
+  int minutes = minutesBetweenTimes(nextCheckInTime, now);
+  Serial.print("Minutes to check-in: ");
+  Serial.println(minutes);
+
+  if (minutes < 1) {
+    timeToCheckIn = true;
   }
 }
 
@@ -186,16 +199,17 @@ void refreshDelayScreen(long t) {
   tft.setTextColor(BLACK);
   tft.setCursor(0, 70);
   tft.setFont(&FreeSansBold12pt7b);
-  tft.println("     Your next check in is in");
+  tft.println("     Your next check-in is in");
   tft.print("     ");
   Time now = rtc.getTime();
-  printNextCheckInTime(now, lastCheckInTime);
+  printNextCheckInTime(now, nextCheckInTime);
   tft.println(".");
   tft.setTextSize(1);
   tft.setFont(&FreeSans9pt7b);
-  tft.print("       Your last check in was at ");
+  tft.print("       Your last check-in was at ");
   tft.setFont(&FreeSansBold9pt7b);
-  printTime(lastCheckInTime);
+  String lcit = printTime(lastCheckInTime);
+  tft.print(lcit);
   tft.setFont(&FreeSans9pt7b);
   tft.println(" and");
   tft.print("       you received ");
@@ -339,6 +353,12 @@ void getPainLevelScreen() {
 //// DEVICE CONFIRMS DISPENSING ////
 void dispenseConfirmedScreen(int selection) {
   resetScreen();
+  timeToCheckIn = false;
+  lockedOut = true;
+  lockOutStartTime = millis();
+  lastCheckInTime = rtc.getTime();
+  nextCheckInTime = setNextCheckInTime(lastCheckInTime, nextCheckInTime, doseInterval);
+
   tft.setTextColor(BLACK);
   tft.setCursor(0, 70);
   tft.setFont(&FreeSans12pt7b);
@@ -352,17 +372,13 @@ void dispenseConfirmedScreen(int selection) {
   tft.setFont(&FreeSansBold12pt7b);
   tft.print("     ");
   Time now = rtc.getTime();
-  printNextCheckInTime(now, lastCheckInTime);
+  printNextCheckInTime(now, nextCheckInTime);
   tft.println(".");
 
   // ADD SERVO HERE //
 
   delay(2000);
-  timeToCheckIn = false;
-  lockedOut = true;
-  lockOutStartTime = millis();
-  lastCheckInTime = rtc.getTime();
-  setNextCheckInTime(lastCheckInTime, nextCheckInTime, doseInterval);
+
 }
 
 //// USER SELECTED "NO MEDICATION" ////
@@ -408,8 +424,9 @@ int getConfirmDispenseAnswer() {
   return answer;
 }
 
-int getContAnswer() {
-  int answer;
+int getContAnswer(bool refresh) {
+  long delayStart = millis();
+  int answer = 0;
   bool valid = false;
   while (!valid) {
     TSPoint p = ts.getPoint();
@@ -420,6 +437,11 @@ int getContAnswer() {
     if (answer != 0) {
       valid = true;
       delay(300); //debounce touch
+    }
+    if (refresh) {
+      if (millis() > delayStart + 60000) {
+        return;
+      }
     }
   }
   return answer;
@@ -578,27 +600,44 @@ String getLastDose(int doseLevel) {
   }
 }
 
-void printTime(Time t) {
+String printTime(Time t) {
+  String result = "";
   int hr = t.hour;
   int min = t.min;
   bool pm = false;
-
+  
 
   if (hr > 12) {
     hr = hr - 12;
     pm = true;
   }
-  tft.print(hr);
-  tft.print(":");
-  tft.print(min);
-  if (pm) {
-    tft.print("pm");
+  String minStr;
+  
+  if (min < 10) {
+    minStr = "0" + String(min);
   } else {
-    tft.print("am");
+    minStr = String(min);
   }
+  
+
+  result += String(hr);
+  result += ":";
+  result += minStr;
+  if (pm) {
+    result += "pm";
+  } else {
+    result += "am";
+  }
+
+  return result;
+
+
 }
 
-void setNextCheckInTime(Time t1, Time t2, int interval) {
+Time setNextCheckInTime(Time t1, Time t2, int interval) {
+  //t1 is current time, to set by
+  // t2 is the next check in time
+
   int hours = int(interval/60);
   int minutes = int(interval % 60);
   // clone t1 to t2
@@ -620,13 +659,14 @@ void setNextCheckInTime(Time t1, Time t2, int interval) {
     t2.date += 1;
     t2.dow += 1;
   }
+
+  return t2;
 }
 
 void printNextCheckInTime(Time now, Time next){
-  int getMinutes = minutesBetweenTimes(now, next);
-
+  int getMinutes = minutesBetweenTimes(next, now);
   int hours = int(getMinutes / 60);
-  int minutes = int(minutes % 60);
+  int minutes = getMinutes - 60 * hours;
 
   if (hours == 0) {
     tft.print(minutes);
@@ -637,21 +677,27 @@ void printNextCheckInTime(Time now, Time next){
     tft.print(minutes);
     tft.print("m, at  ");
   }
-  printTime(next);
+  String ncit = printTime(nextCheckInTime);
+  tft.print(ncit);
 }
 
 //// COMPARE TIMES ////
-int minutesBetweenTimes(Time curr, Time CItime) {
-  int diffHour = curr.hour - CItime.hour;
-  if (curr.hour < CItime.hour) {
-    diffHour = curr.hour + 24 - CItime.hour;
+
+//FIX THIS
+int minutesBetweenTimes(Time later, Time earlier) {
+  int diffHour;
+
+  if (later.hour < earlier.hour) {
+    diffHour = later.hour + 24 - earlier.hour;
+  } else {
+    diffHour = later.hour - earlier.hour;
   }
   if (diffHour == 0) {
-    return curr.min - CItime.min;
+    return later.min - earlier.min;
   } else if (diffHour == 1) {
-    return curr.min + (60-CItime.min);
+    return later.min + (60-earlier.min);
   } else {
-    return ((diffHour - 1)*60) + curr.min + (60-CItime.min);
+    return (diffHour - 1) * 60 + later.min + (60-earlier.min);
   }
 }
 
