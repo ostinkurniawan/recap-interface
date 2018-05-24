@@ -6,6 +6,7 @@
 #include <Fonts/FreeSansBold12pt7b.h>
 #include <Fonts/FreeSans12pt7b.h>
 #include <DS3231.h>
+#include <Servo.h>
 
 #define YP A2  // must be an analog pin, use "An" notation!
 #define XM A3  // must be an analog pin, use "An" notation!
@@ -47,7 +48,9 @@ DS3231 rtc(SDA, SCL);
 int currDoseLevel;
 bool timeToCheckIn;
 bool lockedOut;
-String doses[4] = {"1 Tylenol", "2 Tylenol", "1 Dilaudid", "2 Dilaudid"};
+String doses[4] = {"Tylenol", "Tylenol", "Dilaudid", "Dilaudid"};
+int numDoses[4] = {1, 2, 1, 2};
+bool isOpioid[4] = {false, false, true, true};
 int lastDose;
 
 long lockOutStartTime;
@@ -55,7 +58,11 @@ long lockOutInterval;
 
 Time lastCheckInTime;
 Time nextCheckInTime;
+Time lockOutEndTime;
 int doseInterval; // dose interval, in minutes.
+
+int servoAngle;
+Servo servo;
 
 long lockOutDuration;
 
@@ -70,6 +77,7 @@ void setup(void) {
   tft.setRotation(1);
   tft.setFont(&FreeSansBold12pt7b);
   tft.fillScreen(WHITE);
+  servo.attach(22);
 
   // REAL TIME CLOCK SETUP //
   rtc.begin();
@@ -80,8 +88,9 @@ void setup(void) {
   lockedOut = false;
   lockOutInterval = 1.0; //lock out interval, in minutes.
   lockOutDuration = lockOutInterval * 60 * 1000;
-  doseInterval = 2;
-
+  doseInterval = 4;
+  servoAngle = 4;
+  servo.write(servoAngle);
   //debug touch
 }
 
@@ -145,8 +154,7 @@ void nonCheckInScreen() {
   tft.println(" and ");
   tft.print("       you received ");
   tft.setFont(&FreeSansBold9pt7b);
-  String tempLD = getLastDose(lastDose);
-  tft.print(tempLD);
+  tft.print(numDoses[lastDose]); tft.print(" ");tft.print(doses[lastDose]);
   tft.println(".");
   tft.println();
   tft.println("       If you are currently in pain and need medication,");
@@ -214,8 +222,7 @@ void refreshDelayScreen(long t) {
   tft.println(" and");
   tft.print("       you received ");
   tft.setFont(&FreeSansBold9pt7b);
-  String tempLD = getLastDose(lastDose);
-  tft.print(tempLD);
+  tft.print(numDoses[lastDose]); tft.print(" ");tft.print(doses[lastDose]);
   tft.println(".");
   tft.println();
   tft.println("       It is not safe for you to take another");
@@ -296,6 +303,8 @@ void confirmDoseScreen(int a) {
   if (selection == 4) {
     tft.print("none");
   } else {
+    tft.print(numDoses[selection]);
+    tft.print(" ");
     tft.print(doses[selection]);
   }
   tft.print(".");
@@ -318,8 +327,20 @@ void confirmOverrideScreen() {
   tft.setFont(&FreeSansBold12pt7b);
   tft.setTextColor(BLACK);
   tft.println("    It is not recommended that you");
-  tft.println("    take a dose for another 30 minutes.");
-
+  tft.print("    take a dose for another ");
+  Time n = rtc.getTime();
+  int getMinutes = minutesBetweenTimes(nextCheckInTime, n);
+  int hours = int(getMinutes / 60);
+  int minutes = getMinutes - 60 * hours;
+  if (hours == 0) {
+    tft.print(minutes);
+    tft.print(" minutes.");
+  } else {
+    tft.print(hours);
+    tft.print("h ");
+    tft.print(minutes);
+    tft.print("m.");
+  }
   int answer = getConfirmDispenseAnswer();
 
   if (answer == 1) {
@@ -362,9 +383,14 @@ void dispenseConfirmedScreen(int selection) {
   tft.setTextColor(BLACK);
   tft.setCursor(0, 70);
   tft.setFont(&FreeSans12pt7b);
-  tft.print("     Dispensing ");
+  if (isOpioid[selection] == true) {
+    tft.print("     Dispensing ");
+  } else {
+    tft.print("     Please take ");
+  }
+
   tft.setFont(&FreeSansBold12pt7b);
-  tft.print(doses[selection]);
+  tft.print(numDoses[selection]); tft.print(" ");tft.print(doses[selection]);
   tft.println(".");
   tft.println();
   tft.setFont(&FreeSans12pt7b);
@@ -376,7 +402,18 @@ void dispenseConfirmedScreen(int selection) {
   tft.println(".");
 
   // ADD SERVO HERE //
-
+  if (isOpioid[selection] == true) {
+    if (numDoses[lastDose] == 1) {
+      servoAngle += 18;
+      servo.write(servoAngle);
+    } else {
+      for (int i = 0; i < numDoses[lastDose]; i++) {
+        servoAngle += 18;
+        servo.write(servoAngle);
+        delay(1000);
+      }
+    }
+  }
   delay(2000);
 
 }
@@ -408,6 +445,12 @@ void noMedSelectedScreen() {
 ///////////////////////////////////
 
 int getConfirmDispenseAnswer() {
+  Time n = rtc.getTime();
+  int getMinutes = minutesBetweenTimes(nextCheckInTime, n);
+  if (getMinutes < 1) {
+    return 0;
+  }
+  
   int answer;
   bool valid = false;
   while (!valid) {
@@ -596,7 +639,7 @@ String getLastDose(int doseLevel) {
   if (doseLevel == 4) {
     return "none";
   } else {
-    return doses[doseLevel];
+    return numDoses[doseLevel] + " " + doses[doseLevel];
   }
 }
 
@@ -605,20 +648,20 @@ String printTime(Time t) {
   int hr = t.hour;
   int min = t.min;
   bool pm = false;
-  
+
 
   if (hr > 12) {
     hr = hr - 12;
     pm = true;
   }
   String minStr;
-  
+
   if (min < 10) {
     minStr = "0" + String(min);
   } else {
     minStr = String(min);
   }
-  
+
 
   result += String(hr);
   result += ":";
@@ -670,7 +713,11 @@ void printNextCheckInTime(Time now, Time next){
 
   if (hours == 0) {
     tft.print(minutes);
-    tft.print(" minutes, at ");
+    if (minutes == 1) {
+      tft.print("minute, at ");
+    } else {
+      tft.print(" minutes, at ");
+    }
   } else {
     tft.print(hours);
     tft.print("h ");
@@ -790,8 +837,8 @@ void showDoseButtons() {
   tft.setFont(&FreeSans12pt7b);
   tft.setTextColor(WHITE);
   tft.setCursor(290, 50); tft.print("none");
-  tft.setCursor(290, 110); tft.print(doses[0]);
-  tft.setCursor(290, 170); tft.print(doses[1]);
-  tft.setCursor(290, 230); tft.print(doses[2]);
-  tft.setCursor(290, 290); tft.print(doses[3]);
+  tft.setCursor(290, 110); tft.print(numDoses[0]); tft.print(" ");tft.print(doses[0]);
+  tft.setCursor(290, 170); tft.print(numDoses[1]); tft.print(" ");tft.print(doses[1]);
+  tft.setCursor(290, 230); tft.print(numDoses[2]); tft.print(" ");tft.print(doses[2]);
+  tft.setCursor(290, 290); tft.print(numDoses[3]); tft.print(" ");tft.print(doses[3]);
 }
